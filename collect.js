@@ -10,21 +10,17 @@ const DIR = __dirname;
 const DATA_FILE = path.join(DIR, 'data.json');
 const CONFIG_FILE = path.join(DIR, 'config.json');
 
-// 세관별 필수 파라미터 (customs-search-app/crawler.py 와 동일)
+// 세관별 [업무안내 메뉴번호(mi), 기관코드(searchOrg)]. 관세청이 번호를 바꾸는 일이 있어
+// 실행할 때마다 discover() 가 사이트에서 최신 값을 읽어 덮어쓰고, 실패하면 아래 값을 쓴다. (2026-10-15 확인)
 const ORG_MAP = {
-  kcs: ['2956', ''], cvnci: ['10631', ''], cclss: ['3270', '000000508'],
-  seoul: ['3793', '000000240'], busan: ['7212', '000000338'], incheon: ['3685', '000000408'],
-  incheon_airport: ['3426', '000000236'], daegu: ['3901', '000000445'], gwangju: ['4005', '000000469'],
-  pyeongtaek: ['4104', '000000614'], kimpo: ['4186', '030010739'], seongnam: ['4279', '000000280'],
-  anyang: ['4379', '000000282'], changwon: ['4579', '000000386'], ulsan: ['4679', '000000464'],
-  yangsan: ['4779', '000000390'], masan: ['4879', '000000394'], jeju: ['4979', '000000500'],
-  suwon: ['5079', '000000435'], ansan: ['5179', '000000440'], pohang: ['5279', '000000456'],
-  gumi: ['5379', '030011036'], gwangyang: ['5479', '000000482'], mokpo: ['5579', '000000489'],
-  yeosu: ['5679', '000000495'], cheongju: ['5779', '000000299'], cheonan: ['5879', '000000294'],
-  gunsan: ['5979', '000000100'], sokcho: ['6079', '030010670'], jeonju: ['6179', '000000486'],
-  paju: ['6279', '010002445'], gimhae: ['6379', '000000460'], yongdang: ['6479', '030010857'],
-  geoje: ['6579', '030010266'], jinju: ['6779', '030010738'], donghae: ['6879', '030010531'],
-  daejeon: ['6979', '030010672'],
+  kcs: ['2956', ''], cclss: ['3270', '000000508'], seoul: ['3793', '000000240'], busan: ['7212', '000000338'], incheon: ['3685', '000000408'],
+  incheon_airport: ['12666', '030011036'], daegu: ['3901', '000000445'], gwangju: ['3978', '000000472'], pyeongtaek: ['4104', '000000614'],
+  kimpo: ['4186', '030010739'], seongnam: ['4279', '000000280'], anyang: ['4379', '000000282'], changwon: ['4579', '000000386'], ulsan: ['4679', '000000464'],
+  yangsan: ['4779', '000000390'], masan: ['4879', '000000394'], jeju: ['4979', '000000500'], suwon: ['5079', '000000435'], ansan: ['5179', '000000440'],
+  pohang: ['5279', '000000456'], gumi: ['5379', '000000460'], gunsan: ['5479', '000000482'], mokpo: ['5579', '000000489'], yeosu: ['5679', '000000495'],
+  cheongju: ['5779', '000000299'], cheonan: ['5879', '000000294'], gwangyang: ['5979', '000000686'], sokcho: ['6079', '030010670'], jeonju: ['6179', '000000486'],
+  paju: ['6279', '010002445'], yongdang: ['6479', '030010857'], gimhae: ['6579', '030010735'], geoje: ['6679', '030010737'], jinju: ['6779', '030010738'],
+  donghae: ['4479', '030010671'], daejeon: ['6979', '030010672'],
 };
 
 const agent = new https.Agent({ rejectUnauthorized: false, keepAlive: true });
@@ -74,7 +70,7 @@ async function fetchList(sysId, condition) {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
           'Content-Length': Buffer.byteLength(body),
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'User-Agent': UA,
         },
       });
       if (res.status !== 200) throw new Error(`HTTP ${res.status}`);
@@ -87,6 +83,27 @@ async function fetchList(sysId, condition) {
   throw lastErr;
 }
 
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
+
+// 각 세관 메인 → 업무안내 메뉴번호, 업무안내 페이지 → 기관코드를 읽어 ORG_MAP 갱신
+async function discover() {
+  const changed = [];
+  await Promise.all(Object.keys(ORG_MAP).map(async id => {
+    try {
+      const headers = { 'User-Agent': UA, Accept: 'text/html' };
+      const main = await request(`https://www.customs.go.kr/${id}/main.do`, { insecure: true, headers });
+      const mi = (main.body.match(/selectEmpName\.do\?(?:[^"']*&)?mi=(\d+)/) || [])[1] || ORG_MAP[id][0];
+      const page = await request(`https://www.customs.go.kr/${id}/ad/de/selectEmpName.do?mi=${mi}`, { insecure: true, headers });
+      const org = (page.body.match(/selectEmpName\.do\?searchOrg=(\d+)/) || [])[1] || '';
+      if (mi !== ORG_MAP[id][0] || org !== ORG_MAP[id][1]) changed.push(`${id} ${ORG_MAP[id].join('/')}→${mi}/${org}`);
+      ORG_MAP[id] = [mi, org];
+    } catch (e) {
+      console.log(`  ! ${id} 코드 확인 실패(기본값 사용): ${e.message}`);
+    }
+  }));
+  if (changed.length) console.log(`  코드 갱신: ${changed.join(', ')}`);
+}
+
 // 행 형식: [세관코드, 소속기관, 부서, 직위, 성명, 주요업무, 전화번호]
 function toRecord(sysId, cells) {
   if (cells.length === 6) return [sysId, cells[0], cells[1], cells[2], cells[3], cells[4], cells[5]];
@@ -96,6 +113,7 @@ function toRecord(sysId, cells) {
 }
 
 async function collect() {
+  await discover();
   const prev = fs.existsSync(DATA_FILE) ? JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')) : { rows: [] };
   const jobs = Object.keys(ORG_MAP).flatMap(id => [[id, '1'], [id, '2']]);
   const bySys = {}, failed = new Set();
