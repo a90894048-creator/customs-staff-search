@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>관세청 직원 검색</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%231d6fe0' stroke-width='2.6' stroke-linecap='round'%3E%3Ccircle cx='10.5' cy='10.5' r='6.5'/%3E%3Cpath d='M15.5 15.5 21 21'/%3E%3C/svg%3E">
+<style>
+:root {
+  --bg: #f4f6f9; --surface: #fff; --surface-2: #f8fafc; --border: #e2e7ee; --text: #1b2430; --muted: #66727f;
+  --accent: #1d6fe0; --accent-soft: #e7f0fd; --mark: #fff1a8; --tag-p: #e6f4ea; --tag-p-t: #1e7a3a; --tag-d: #eef0f4; --tag-d-t: #4f5b68;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #12161c; --surface: #1a2028; --surface-2: #202833; --border: #2d3743; --text: #e5eaf0; --muted: #94a0ad;
+    --accent: #5b9cf5; --accent-soft: #1c2d45; --mark: #5c4d0f; --tag-p: #173523; --tag-p-t: #7fd39a; --tag-d: #262e39; --tag-d-t: #a9b4c0;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif; }
+.wrap { max-width: 1200px; margin: 0 auto; padding: 28px 16px 60px; }
+header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+h1 { margin: 0; font-size: 24px; letter-spacing: -0.5px; }
+.updated { color: var(--muted); font-size: 13px; }
+.search { position: relative; }
+.search svg { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); color: var(--muted); }
+#q { width: 100%; padding: 15px 16px 15px 48px; font: inherit; font-size: 17px; color: var(--text); background: var(--surface);
+  border: 1.5px solid var(--border); border-radius: 12px; outline: none; }
+#q:focus { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
+.hint { color: var(--muted); font-size: 13px; margin: 8px 2px 14px; }
+.controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+.seg { display: inline-flex; background: var(--surface); border: 1px solid var(--border); border-radius: 9px; padding: 3px; }
+.seg button { border: 0; background: none; color: var(--muted); font: inherit; font-size: 14px; padding: 6px 12px; border-radius: 6px; cursor: pointer; }
+.seg button.on { background: var(--accent); color: #fff; }
+select { font: inherit; font-size: 14px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 9px; padding: 7px 10px; }
+.count { margin-left: auto; color: var(--muted); font-size: 14px; }
+.count b { color: var(--text); }
+.table { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; font-size: 14px; }
+thead th { background: var(--surface-2); font-size: 13px; color: var(--muted); font-weight: 600; white-space: nowrap; }
+thead tr.filters th { padding: 6px 8px; }
+thead input { width: 100%; font: inherit; font-size: 13px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); }
+tbody tr:hover { background: var(--surface-2); }
+tbody tr:last-child td { border-bottom: 0; }
+td.name { font-weight: 600; white-space: nowrap; }
+td.phone { white-space: nowrap; font-variant-numeric: tabular-nums; }
+td.phone a { color: var(--accent); text-decoration: none; }
+td.agency, td.pos { white-space: nowrap; }
+.tag { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 4px; margin-right: 4px; vertical-align: 1px; font-weight: 600; }
+.tag.d { background: var(--tag-d); color: var(--tag-d-t); }
+mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1px; }
+.empty { padding: 48px 16px; text-align: center; color: var(--muted); }
+.more { display: block; margin: 14px auto 0; font: inherit; font-size: 14px; padding: 9px 22px; border-radius: 9px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; }
+footer { margin-top: 24px; color: var(--muted); font-size: 12px; line-height: 1.7; }
+footer a { color: var(--muted); }
+@media (max-width: 760px) {
+  .wrap { padding-top: 18px; }
+  h1 { font-size: 20px; }
+  .count { margin-left: 0; width: 100%; }
+  thead { display: none; }
+  table, tbody, tr, td { display: block; }
+  tbody tr { padding: 10px 14px; border-bottom: 1px solid var(--border); }
+  td { border: 0; padding: 1px 0; }
+  td.agency { color: var(--muted); font-size: 12px; }
+  td.name { display: inline; font-size: 16px; } td.pos { display: inline; margin-left: 6px; color: var(--muted); }
+  td.dept { font-size: 13px; }
+  td.phone { margin-top: 4px; }
+  td:empty { display: none; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>관세청 직원 검색</h1>
+    <span class="updated" id="updated">데이터 불러오는 중…</span>
+  </header>
+
+  <div class="search">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg>
+    <input id="q" type="search" placeholder="이름, 업무, 부서, 전화번호로 검색 (예: 홍길동, 원산지, 수입통관)" autocomplete="off" autofocus>
+  </div>
+  <div class="hint">띄어쓰기로 여러 단어를 입력하면 모두 포함된 결과만 보여줍니다. 예: <b>인천 원산지</b></div>
+
+  <div class="controls">
+    <div class="seg" id="type">
+      <button data-v="all" class="on">전체</button>
+      <button data-v="p">직원</button>
+      <button data-v="d">부서·업무</button>
+    </div>
+    <select id="agency"><option value="">전체 기관</option></select>
+    <span class="count" id="count"></span>
+  </div>
+
+  <div class="table">
+    <table>
+      <thead>
+        <tr><th>소속기관</th><th>부서</th><th>직위</th><th>성명</th><th>주요업무</th><th>전화번호</th></tr>
+        <tr class="filters">
+          <th><input data-c="1" placeholder="필터"></th><th><input data-c="2" placeholder="필터"></th>
+          <th><input data-c="3" placeholder="필터"></th><th><input data-c="4" placeholder="필터"></th>
+          <th><input data-c="5" placeholder="필터"></th><th><input data-c="6" placeholder="필터"></th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div class="empty" id="empty" hidden></div>
+  </div>
+  <button class="more" id="more" hidden>더 보기</button>
+
+  <footer>
+    출처: <a href="https://www.customs.go.kr/kcs/ad/de/selectEmpName.do?mi=2956" target="_blank" rel="noopener">관세청 홈페이지 업무안내(직원 검색)</a>에 공개된 정보를 매일 자동으로 모은 것입니다.
+    인사이동이 바로 반영되지 않을 수 있으니, 정확한 정보는 관세청 홈페이지에서 확인하세요.
+  </footer>
+</div>
+
+<script>
+const PAGE = 200;
+const state = { rows: [], type: 'all', agency: '', q: [], filters: {}, shown: PAGE, list: [] };
+const $ = id => document.getElementById(id);
+const esc = s => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const norm = s => s.toLowerCase().replace(/[\s-]/g, '');
+
+function highlight(text, terms) {
+  if (!text) return '';
+  let html = esc(text);
+  for (const t of terms) {
+    if (!t) continue;
+    const re = new RegExp(t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+    html = html.replace(re, m => `<mark>${m}</mark>`);
+  }
+  return html;
+}
+
+function apply() {
+  const { type, agency, q, filters } = state;
+  const fEntries = Object.entries(filters).filter(([, v]) => v);
+  state.list = state.rows.filter(r => {
+    if (type === 'p' && !r[4]) return false;
+    if (type === 'd' && r[4]) return false;
+    if (agency && r[1] !== agency) return false;
+    for (const t of q) if (!r._s.includes(t)) return false;
+    for (const [c, v] of fEntries) if (!norm(r[c]).includes(v)) return false;
+    return true;
+  });
+  state.shown = PAGE;
+  render();
+}
+
+function render() {
+  const terms = [...state.q, ...Object.values(state.filters)].filter(Boolean);
+  const raw = $('q').value.trim().split(/\s+/).filter(Boolean);
+  const hl = raw.length ? raw : terms;
+  const list = state.list.slice(0, state.shown);
+  $('rows').innerHTML = list.map(r => {
+    const tel = r[6].replace(/[^\d]/g, '');
+    return `<tr>
+      <td class="agency">${highlight(r[1], hl)}</td>
+      <td class="dept">${r[4] ? '' : '<span class="tag d">부서</span>'}${highlight(r[2], hl)}</td>
+      <td class="pos">${highlight(r[3], hl)}</td>
+      <td class="name">${highlight(r[4], hl)}</td>
+      <td>${highlight(r[5], hl)}</td>
+      <td class="phone">${tel ? `<a href="tel:${tel}">${highlight(r[6], hl)}</a>` : ''}</td>
+    </tr>`;
+  }).join('');
+  const total = state.list.length;
+  $('count').innerHTML = `<b>${total.toLocaleString()}</b>건${total > state.shown ? ` 중 ${state.shown.toLocaleString()}건 표시` : ''}`;
+  $('more').hidden = total <= state.shown;
+  $('empty').hidden = total > 0;
+  $('empty').textContent = state.rows.length ? '검색 결과가 없습니다.' : '';
+}
+
+let timer;
+const debounced = () => { clearTimeout(timer); timer = setTimeout(apply, 120); };
+
+$('q').addEventListener('input', e => {
+  state.q = e.target.value.split(/\s+/).map(norm).filter(Boolean);
+  debounced();
+});
+document.querySelectorAll('thead input').forEach(inp => inp.addEventListener('input', () => {
+  state.filters[inp.dataset.c] = norm(inp.value);
+  debounced();
+}));
+$('type').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  document.querySelectorAll('#type button').forEach(x => x.classList.toggle('on', x === b));
+  state.type = b.dataset.v; apply();
+});
+$('agency').addEventListener('change', e => { state.agency = e.target.value; apply(); });
+$('more').addEventListener('click', () => { state.shown += PAGE; render(); });
+
+fetch('data.json?t=' + Date.now()).then(r => r.json()).then(d => {
+  state.rows = d.rows.map(r => Object.assign(r, { _s: norm(r.slice(1).join(' ')) }));
+  const agencies = [...new Set(d.rows.map(r => r[1]))];
+  $('agency').insertAdjacentHTML('beforeend', agencies.map(a => `<option>${esc(a)}</option>`).join(''));
+  const dt = new Date(d.updated);
+  const people = d.rows.filter(r => r[4]).length;
+  $('updated').textContent = `${dt.getFullYear()}.${dt.getMonth() + 1}.${dt.getDate()} 기준 · 직원 ${people.toLocaleString()}명 · 부서·업무 ${(d.rows.length - people).toLocaleString()}건`;
+  apply();
+}).catch(() => {
+  $('updated').textContent = '데이터를 불러오지 못했습니다.';
+  $('empty').hidden = false;
+  $('empty').textContent = '데이터 파일(data.json)을 불러오지 못했습니다. 잠시 후 새로고침해 주세요.';
+});
+</script>
+</body>
+</html>
