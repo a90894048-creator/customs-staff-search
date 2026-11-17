@@ -116,7 +116,7 @@ footer a { color: var(--muted); }
   <footer>
     출처: <a href="https://www.customs.go.kr/kcs/ad/de/selectEmpName.do?mi=2956" target="_blank" rel="noopener">관세청 홈페이지 업무안내(직원 검색)</a>에 공개된 정보를 매일 자동으로 모은 것입니다.
     인사이동이 바로 반영되지 않을 수 있으니, 정확한 정보는 관세청 홈페이지에서 확인하세요.
-    <br>관세청 자료에 성명이 없는 일부 부서는 현장에서 확인한 내용으로 보강했습니다. 보강한 값에는 <b>사진</b> 표시가 붙고, 마우스를 올리면 출처와 확인일이 나옵니다.
+    <br>관세청 자료에 성명이 없는 일부 부서는 현장에서 확인한 내용으로 보강했습니다. 보강한 값에는 <b>직접입력</b> 표시가 붙고, 마우스를 올리면 출처와 확인일이 나옵니다.
   </footer>
 </div>
 
@@ -266,7 +266,7 @@ function applySupplement(rows, sup) {
 
 // 확인일이 1년 넘게 지난 보강값은 인사이동으로 틀어졌을 수 있어 표시를 흐리게 한다.
 function supBadge(mark) {
-  const label = /사진|배치도/.test(mark.src) ? '사진' : '수기';
+  const label = '직접입력';
   const d = new Date(mark.at);
   if (isNaN(d.getTime())) return { label: label, cls: '', title: mark.src + '에서 확인한 값입니다 (관세청 자료에는 없는 내용입니다)' };
   const months = Math.round((Date.now() - d.getTime()) / 2592000000);
@@ -313,7 +313,7 @@ function render() {
       <td class="dept">${r[4] ? '' : '<span class="tag d">부서</span>'}${highlight(r[2], hl)}</td>
       <td class="pos">${highlight(r[3], hl)}</td>
       <td class="name">${highlight(r[4], hl)}${sb ? `<span class="src${sb.cls}" title="${esc(sb.title)}">${sb.label}</span>` : ''}</td>
-      <td>${highlight(r[5], hl)}${r._supJob ? `<span class="subjob">${sb ? sb.label : '수기'} 기재 · ${highlight(r._supJob, hl)}</span>` : ''}</td>
+      <td>${highlight(r[5], hl)}${r._supJob ? `<span class="subjob">직접 입력 · ${highlight(r._supJob, hl)}</span>` : ''}</td>
       <td class="phone"${r._guess ? ` title="원본에 지역번호가 없어 같은 기관의 다른 번호에서 ${r._guess} 로 추정한 값입니다"` : ''}>${!r[6] ? '' : tel ? `<a href="tel:${tel}">${highlight(r[6], hl)}</a>${r._guess ? '<span class="guess">?</span>' : ''}` : highlight(r[6], hl)}</td>
     </tr>`;
   }).join('');
