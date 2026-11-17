@@ -39,10 +39,33 @@ function request(url, { method = 'GET', headers = {}, body = null, insecure = fa
   });
 }
 
-const decode = s => s
-  .replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]+>/g, '')
-  .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-  .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&#(\d+);/g, (_, n) => String.fromCharCode(n))
+// 명명 실체(&middot; 등) 표. 관세청 페이지는 &amp;middot; 처럼 이중 인코딩된 값을 내려보내는
+// 경우가 있어 unent() 가 더 이상 바뀌지 않을 때까지 최대 3회 반복 해석한다.
+const ENTITIES = {
+  nbsp: ' ', amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", middot: '\u00b7', sdot: '\u22c5', bull: '\u2022',
+  hellip: '\u2026', ndash: '\u2013', mdash: '\u2014', lsquo: '\u2018', rsquo: '\u2019', ldquo: '\u201c', rdquo: '\u201d',
+  laquo: '\u00ab', raquo: '\u00bb', deg: '\u00b0', times: '\u00d7', divide: '\u00f7', plusmn: '\u00b1', sim: '\u223c',
+  copy: '\u00a9', reg: '\u00ae', trade: '\u2122', sect: '\u00a7', para: '\u00b6', prime: '\u2032', Prime: '\u2033',
+  frac12: '\u00bd', permil: '\u2030', ensp: ' ', emsp: ' ', thinsp: ' ', shy: '',
+};
+// 세미콜론으로 제대로 끝나는 실체만 해석한다 (`R&D` 같은 평문은 건드리지 않는다).
+function unent(s) {
+  let out = String(s), prev;
+  for (let i = 0; i < 3 && out !== prev; i++) {
+    prev = out;
+    out = out.replace(/&(#\d{1,7}|#x[0-9a-f]{1,6}|[a-z][a-z0-9]{1,9});/gi, (m, g) => {
+      if (g[0] === '#') {
+        const n = g[1] === 'x' || g[1] === 'X' ? parseInt(g.slice(2), 16) : parseInt(g.slice(1), 10);
+        return Number.isFinite(n) && n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : m;
+      }
+      const v = ENTITIES[g] !== undefined ? ENTITIES[g] : ENTITIES[g.toLowerCase()];
+      return v === undefined ? m : v;
+    });
+  }
+  return out;
+}
+
+const decode = s => unent(s.replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]+>/g, ''))
   .replace(/\s+/g, ' ').trim();
 
 function parseRows(html) {

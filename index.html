@@ -122,6 +122,64 @@ const $ = id => document.getElementById(id);
 const esc = s => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const norm = s => s.toLowerCase().replace(/[\s-]/g, '');
 
+// ── HTML 실체 복원 ────────────────────────────────────────────────
+// 관세청 원본에 &amp;middot; 처럼 이중 인코딩된 값이 섞여 있어, 수집기가 한 번 풀어도
+// &middot; 가 글자 그대로 남는다. 더 이상 바뀌지 않을 때까지(최대 3회) 다시 해석한다.
+const ENTITIES = {
+  nbsp: ' ', amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", middot: '\u00b7', sdot: '\u22c5', bull: '\u2022',
+  hellip: '\u2026', ndash: '\u2013', mdash: '\u2014', lsquo: '\u2018', rsquo: '\u2019', ldquo: '\u201c', rdquo: '\u201d',
+  laquo: '\u00ab', raquo: '\u00bb', deg: '\u00b0', times: '\u00d7', divide: '\u00f7', plusmn: '\u00b1', sim: '\u223c',
+  copy: '\u00a9', reg: '\u00ae', trade: '\u2122', sect: '\u00a7', para: '\u00b6', prime: '\u2032', Prime: '\u2033',
+  frac12: '\u00bd', permil: '\u2030', ensp: ' ', emsp: ' ', thinsp: ' ', shy: '',
+};
+// 세미콜론으로 제대로 끝나는 실체만 해석한다 (업무명의 `R&D` 같은 평문은 그대로 둔다).
+function unent(s) {
+  let out = String(s == null ? '' : s), prev;
+  for (let i = 0; i < 3 && out !== prev; i++) {
+    prev = out;
+    out = out.replace(/&(#\d{1,7}|#x[0-9a-f]{1,6}|[a-z][a-z0-9]{1,9});/gi, (m, g) => {
+      if (g[0] === '#') {
+        const n = g[1] === 'x' || g[1] === 'X' ? parseInt(g.slice(2), 16) : parseInt(g.slice(1), 10);
+        return Number.isFinite(n) && n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : m;
+      }
+      const v = ENTITIES[g] !== undefined ? ENTITIES[g] : ENTITIES[g.toLowerCase()];
+      return v === undefined ? m : v;
+    });
+  }
+  return out;
+}
+
+// ── 전화번호 정리 ─────────────────────────────────────────────────
+// 원본에 042-481-7601 / 0424817671 / 4817602 / (051)620-6290 / 063-73-08715 처럼
+// 표기가 뒤섞여 있다. 맨 앞 번호만 표준 형식으로 바꾸고, 뒤에 붙은 내선·범위 표기
+// (", 6794", "~5/4747", "(입국)")는 원본 그대로 남긴다. 없는 자리(--, ., 0)는 비운다.
+function formatPhone(raw) {
+  let s = String(raw == null ? '' : raw).trim();
+  if (!s) return '';
+  // (051)620-6290, 032)452-3267 → 051-620-6290
+  s = s.replace(/^\(?\s*(\d{2,4})\s*\)\s*-?\s*/, '$1-');
+  const head = (s.match(/^\d[\d\s-]*/) || [''])[0].trim().replace(/-+$/, '');
+  if (!head) return '';
+  const rest = s.slice(s.indexOf(head) + head.length);
+  const d = head.replace(/\D/g, '');
+  let out = head;
+  if (d.length < 7) return rest.trim() ? rest.trim() : '';   // "0", "." 등 번호가 아닌 값
+  else if (d.length === 7) out = d.replace(/^(\d{3})(\d{4})$/, '$1-$2');          // 국번 없는 7자리
+  else if (d.length === 8) out = d.replace(/^(\d{4})(\d{4})$/, '$1-$2');          // 국번 없는 8자리
+  else if (d.length === 9 && d.startsWith('02')) out = d.replace(/^(02)(\d{3})(\d{4})$/, '$1-$2-$3');
+  else if (d.length === 10 && d.startsWith('02')) out = d.replace(/^(02)(\d{4})(\d{4})$/, '$1-$2-$3');
+  else if (d.length === 10) out = d.replace(/^(\d{3})(\d{3})(\d{4})$/, '$1-$2-$3');
+  else if (d.length === 11) out = d.replace(/^(\d{3})(\d{4})(\d{4})$/, '$1-$2-$3');
+  // 그 밖의 길이는 원본 표기를 그대로 둔다
+  return (out + rest).trim();
+}
+
+// 걸 수 있는 번호(지역번호 포함 9자리 이상)일 때만 tel: 링크를 만든다.
+function telOf(shown) {
+  const head = (String(shown).match(/^\d[\d-]*/) || [''])[0].replace(/\D/g, '');
+  return head.length >= 9 && head.startsWith('0') ? head : '';
+}
+
 function highlight(text, terms) {
   if (!text) return '';
   let html = esc(text);
@@ -154,14 +212,14 @@ function render() {
   const hl = raw.length ? raw : terms;
   const list = state.list.slice(0, state.shown);
   $('rows').innerHTML = list.map(r => {
-    const tel = r[6].replace(/[^\d]/g, '');
+    const tel = telOf(r[6]);
     return `<tr>
       <td class="agency">${highlight(r[1], hl)}</td>
       <td class="dept">${r[4] ? '' : '<span class="tag d">부서</span>'}${highlight(r[2], hl)}</td>
       <td class="pos">${highlight(r[3], hl)}</td>
       <td class="name">${highlight(r[4], hl)}</td>
       <td>${highlight(r[5], hl)}</td>
-      <td class="phone">${tel ? `<a href="tel:${tel}">${highlight(r[6], hl)}</a>` : ''}</td>
+      <td class="phone">${!r[6] ? '' : tel ? `<a href="tel:${tel}">${highlight(r[6], hl)}</a>` : highlight(r[6], hl)}</td>
     </tr>`;
   }).join('');
   const total = state.list.length;
@@ -191,7 +249,11 @@ $('agency').addEventListener('change', e => { state.agency = e.target.value; app
 $('more').addEventListener('click', () => { state.shown += PAGE; render(); });
 
 fetch('data.json?t=' + Date.now()).then(r => r.json()).then(d => {
-  state.rows = d.rows.map(r => Object.assign(r, { _s: norm(r.slice(1).join(' ')) }));
+  state.rows = d.rows.map(r => {
+    for (let i = 1; i <= 5; i++) r[i] = unent(r[i] || '');
+    r[6] = formatPhone(unent(r[6] || ''));
+    return Object.assign(r, { _s: norm(r.slice(1).join(' ')) });
+  });
   const agencies = [...new Set(d.rows.map(r => r[1]))];
   $('agency').insertAdjacentHTML('beforeend', agencies.map(a => `<option>${esc(a)}</option>`).join(''));
   const dt = new Date(d.updated);
