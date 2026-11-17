@@ -47,6 +47,9 @@ td.name { font-weight: 600; white-space: nowrap; }
 td.phone { white-space: nowrap; font-variant-numeric: tabular-nums; }
 td.phone a { color: var(--accent); text-decoration: none; }
 td.phone .guess { color: var(--muted); font-size: 11px; margin-left: 3px; vertical-align: 2px; cursor: help; }
+td.name .src { font-size: 11px; font-weight: 600; color: var(--accent); background: var(--accent-soft); border-radius: 3px; padding: 1px 5px; margin-left: 5px; vertical-align: 1px; cursor: help; }
+td.name .src.old { color: var(--muted); background: var(--tag-d); }
+.subjob { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; }
 td.agency, td.pos { white-space: nowrap; }
 .tag { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 4px; margin-right: 4px; vertical-align: 1px; font-weight: 600; }
 .tag.d { background: var(--tag-d); color: var(--tag-d-t); }
@@ -113,6 +116,7 @@ footer a { color: var(--muted); }
   <footer>
     출처: <a href="https://www.customs.go.kr/kcs/ad/de/selectEmpName.do?mi=2956" target="_blank" rel="noopener">관세청 홈페이지 업무안내(직원 검색)</a>에 공개된 정보를 매일 자동으로 모은 것입니다.
     인사이동이 바로 반영되지 않을 수 있으니, 정확한 정보는 관세청 홈페이지에서 확인하세요.
+    <br>관세청 자료에 성명이 없는 일부 부서는 현장에서 확인한 내용으로 보강했습니다. 보강한 값에는 <b>사진</b> 표시가 붙고, 마우스를 올리면 출처와 확인일이 나옵니다.
   </footer>
 </div>
 
@@ -209,6 +213,67 @@ function fillAreaCodes(rows) {
   return filled;
 }
 
+// ── 수기 보강 자료 얹기 ───────────────────────────────────────────
+// supplement.json 에 사진·현장 확인으로 얻은 성명·업무를 담아 둔다. 자동수집 자료(data.json)는
+// 매일 통째로 덮어써지므로 파일을 따로 두고, 화면을 그릴 때 기관+부서+전화번호가 같은 행을
+// 찾아 얹는다. 관세청 쪽에 이미 성명이 있으면 그쪽이 더 최신이므로 보강값은 쓰지 않는다.
+// 업무는 원본을 지우지 않고 아래에 한 줄 덧붙인다.
+function applySupplement(rows, sup) {
+  // 띄어쓰기·기호만 다른 업무는 덧붙이지 않는다 ("수출 통관" ↔ "수출통관").
+  const bare = t => String(t == null ? '' : t).replace(/[\s·,()\-]/g, '');
+  const out = { filled: 0, added: 0, skipped: 0 };
+  const bundles = (sup && sup['묶음']) || [];
+  if (!bundles.length) return out;
+
+  const byKey = new Map();                 // 기관|부서|전화번호 → 행
+  const sysOf = new Map();                 // 기관 → 수집기 식별자
+  for (const r of rows) {
+    byKey.set(r[1] + '|' + r[2] + '|' + r[6], r);
+    if (!sysOf.has(r[1])) sysOf.set(r[1], r[0]);
+  }
+
+  for (const b of bundles) {
+    const org = String(b['기관'] || '').trim(), dept = String(b['부서'] || '').trim();
+    if (!org || !dept) continue;
+    const head = String(b['대표번호'] || '').trim();
+    const mark = { src: String(b['출처'] || '수기 입력'), at: String(b['확인일'] || (sup && sup.updated) || '') };
+    for (const p of (b['명단'] || [])) {
+      const name = String(p['성명'] || '').trim();
+      if (!name) continue;
+      // 내선만 적어도 되게 대표번호를 앞에 붙인다. 전화번호를 통째로 적으면 그것을 쓴다.
+      const phone = formatPhone(p['전화번호'] || (head && p['내선'] ? head + '-' + p['내선'] : ''));
+      if (!phone) continue;
+      const rank = String(p['직위'] || '').trim(), job = String(p['업무'] || '').trim();
+      const hit = byKey.get(org + '|' + dept + '|' + phone);
+      if (hit) {
+        if (hit[4]) { out.skipped++; continue; }      // 관세청이 공개한 이름이 우선
+        hit[4] = name;
+        if (rank && !hit[3]) hit[3] = rank;
+        if (job && bare(job) !== bare(hit[5])) hit._supJob = job;
+        hit._sup = mark;
+        out.filled++;
+      } else {
+        const row = [sysOf.get(org) || '', org, dept, rank, name, job, phone];
+        row._sup = mark;
+        rows.push(row);
+        byKey.set(org + '|' + dept + '|' + phone, row);
+        out.added++;
+      }
+    }
+  }
+  return out;
+}
+
+// 확인일이 1년 넘게 지난 보강값은 인사이동으로 틀어졌을 수 있어 표시를 흐리게 한다.
+function supBadge(mark) {
+  const label = /사진|배치도/.test(mark.src) ? '사진' : '수기';
+  const d = new Date(mark.at);
+  if (isNaN(d.getTime())) return { label: label, cls: '', title: mark.src + '에서 확인한 값입니다 (관세청 자료에는 없는 내용입니다)' };
+  const months = Math.round((Date.now() - d.getTime()) / 2592000000);
+  if (months >= 12) return { label: label, cls: ' old', title: mark.src + '(' + mark.at + ' 확인) — ' + months + '개월 지나 인사이동으로 바뀌었을 수 있습니다' };
+  return { label: label, cls: '', title: mark.src + '(' + mark.at + ' 확인)에서 얻은 값입니다 · 관세청 자료에는 없는 내용입니다' };
+}
+
 function highlight(text, terms) {
   if (!text) return '';
   let html = esc(text);
@@ -242,12 +307,13 @@ function render() {
   const list = state.list.slice(0, state.shown);
   $('rows').innerHTML = list.map(r => {
     const tel = telOf(r[6]);
+    const sb = r._sup ? supBadge(r._sup) : null;
     return `<tr>
       <td class="agency">${highlight(r[1], hl)}</td>
       <td class="dept">${r[4] ? '' : '<span class="tag d">부서</span>'}${highlight(r[2], hl)}</td>
       <td class="pos">${highlight(r[3], hl)}</td>
-      <td class="name">${highlight(r[4], hl)}</td>
-      <td>${highlight(r[5], hl)}</td>
+      <td class="name">${highlight(r[4], hl)}${sb ? `<span class="src${sb.cls}" title="${esc(sb.title)}">${sb.label}</span>` : ''}</td>
+      <td>${highlight(r[5], hl)}${r._supJob ? `<span class="subjob">${sb ? sb.label : '수기'} 기재 · ${highlight(r._supJob, hl)}</span>` : ''}</td>
       <td class="phone"${r._guess ? ` title="원본에 지역번호가 없어 같은 기관의 다른 번호에서 ${r._guess} 로 추정한 값입니다"` : ''}>${!r[6] ? '' : tel ? `<a href="tel:${tel}">${highlight(r[6], hl)}</a>${r._guess ? '<span class="guess">?</span>' : ''}` : highlight(r[6], hl)}</td>
     </tr>`;
   }).join('');
@@ -277,19 +343,24 @@ $('type').addEventListener('click', e => {
 $('agency').addEventListener('change', e => { state.agency = e.target.value; apply(); });
 $('more').addEventListener('click', () => { state.shown += PAGE; render(); });
 
-fetch('data.json?t=' + Date.now()).then(r => r.json()).then(d => {
+Promise.all([
+  fetch('data.json?t=' + Date.now()).then(r => r.json()),
+  // 보강 파일은 없을 수도 있다. 못 읽어도 자동수집 자료는 그대로 보여준다.
+  fetch('supplement.json?t=' + Date.now()).then(r => (r.ok ? r.json() : null)).catch(() => null),
+]).then(([d, sup]) => {
   const rows = d.rows.map(r => {
     for (let i = 1; i <= 5; i++) r[i] = unent(r[i] || '');
     r[6] = formatPhone(unent(r[6] || ''));
     return r;
   });
   fillAreaCodes(rows);                                   // 전체를 본 뒤 빠진 지역번호를 채운다
-  state.rows = rows.map(r => Object.assign(r, { _s: norm(r.slice(1).join(' ')) }));
-  const agencies = [...new Set(d.rows.map(r => r[1]))];
+  applySupplement(rows, sup);                            // 수기로 보강한 성명·업무를 얹는다
+  state.rows = rows.map(r => Object.assign(r, { _s: norm(r.slice(1).join(' ') + ' ' + (r._supJob || '')) }));
+  const agencies = [...new Set(rows.map(r => r[1]))];
   $('agency').insertAdjacentHTML('beforeend', agencies.map(a => `<option>${esc(a)}</option>`).join(''));
   const dt = new Date(d.updated);
-  const people = d.rows.filter(r => r[4]).length;
-  $('updated').textContent = `${dt.getFullYear()}.${dt.getMonth() + 1}.${dt.getDate()} 기준 · 직원 ${people.toLocaleString()}명 · 부서·업무 ${(d.rows.length - people).toLocaleString()}건`;
+  const people = rows.filter(r => r[4]).length;
+  $('updated').textContent = `${dt.getFullYear()}.${dt.getMonth() + 1}.${dt.getDate()} 기준 · 직원 ${people.toLocaleString()}명 · 부서·업무 ${(rows.length - people).toLocaleString()}건`;
   apply();
 }).catch(() => {
   $('updated').textContent = '데이터를 불러오지 못했습니다.';
