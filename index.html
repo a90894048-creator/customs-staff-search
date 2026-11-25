@@ -216,19 +216,23 @@ function fillAreaCodes(rows) {
 // ── 수기 보강 자료 얹기 ───────────────────────────────────────────
 // supplement.json 에 사진·현장 확인으로 얻은 성명·업무를 담아 둔다. 자동수집 자료(data.json)는
 // 매일 통째로 덮어써지므로 파일을 따로 두고, 화면을 그릴 때 기관+부서+전화번호가 같은 행을
-// 찾아 얹는다. 관세청 쪽에 이미 성명이 있으면 그쪽이 더 최신이므로 보강값은 쓰지 않는다.
-// 업무는 원본을 지우지 않고 아래에 한 줄 덧붙인다.
+// 찾아 얹는다. 기본은 관세청 자료가 우선이라 이미 성명이 있으면 보강값을 쓰지 않고,
+// 업무도 원본을 지우지 않고 아래에 한 줄 덧붙인다. 다만 묶음에 "우선": "사진" 이 적혀 있으면
+// 그 부서는 보강 쪽이 더 최신이라고 보고 이름과 업무를 덮어쓰며, "공석" 에 적은 자리는
+// 이름을 지워 부서·업무 행으로 되돌린다.
 function applySupplement(rows, sup) {
   // 띄어쓰기·기호만 다른 업무는 덧붙이지 않는다 ("수출 통관" ↔ "수출통관").
   const bare = t => String(t == null ? '' : t).replace(/[\s·,()\-]/g, '');
-  const out = { filled: 0, added: 0, skipped: 0 };
+  const out = { filled: 0, added: 0, replaced: 0, cleared: 0, skipped: 0 };
   const bundles = (sup && sup['묶음']) || [];
   if (!bundles.length) return out;
 
-  const byKey = new Map();                 // 기관|부서|전화번호 → 행
+  const byKey = new Map();                 // 기관|부서|전화번호 → 행 목록 (한 번호에 여러 행이 있다)
   const sysOf = new Map();                 // 기관 → 수집기 식별자
   for (const r of rows) {
-    byKey.set(r[1] + '|' + r[2] + '|' + r[6], r);
+    const k = r[1] + '|' + r[2] + '|' + r[6];
+    if (!byKey.has(k)) byKey.set(k, []);
+    byKey.get(k).push(r);
     if (!sysOf.has(r[1])) sysOf.set(r[1], r[0]);
   }
 
@@ -236,27 +240,61 @@ function applySupplement(rows, sup) {
     const org = String(b['기관'] || '').trim(), dept = String(b['부서'] || '').trim();
     if (!org || !dept) continue;
     const head = String(b['대표번호'] || '').trim();
+    // "우선": "사진" 이면 관세청 자료보다 이 묶음이 최신이라고 보고 이름을 덮어쓴다.
+    const wins = /사진|보강|수기/.test(String(b['우선'] || ''));
     const mark = { src: String(b['출처'] || '수기 입력'), at: String(b['확인일'] || (sup && sup.updated) || '') };
+    // 내선만 적어도 되게 대표번호를 앞에 붙인다. 전화번호를 통째로 적으면 그것을 쓴다.
+    const num = v => formatPhone(!v ? '' : String(v).includes('-') ? v : (head ? head + '-' + v : v));
+    const at = p => byKey.get(org + '|' + dept + '|' + p) || [];
+
+    // 1) 사진에 공석으로 적힌 자리 — 자리를 뜬 사람 이름을 지워 부서·업무 행으로 되돌린다.
+    //    (번호와 업무는 그대로 두므로 전화번호를 찾는 데는 지장이 없다)
+    for (const v of (b['공석'] || [])) {
+      const p = num(v);
+      if (!p) continue;
+      for (const r of at(p)) {
+        if (!r[4]) continue;
+        r[3] = ''; r[4] = ''; r._sup = mark; r._vacated = true;
+        out.cleared++;
+      }
+    }
+
+    // 2) 명단
     for (const p of (b['명단'] || [])) {
       const name = String(p['성명'] || '').trim();
       if (!name) continue;
-      // 내선만 적어도 되게 대표번호를 앞에 붙인다. 전화번호를 통째로 적으면 그것을 쓴다.
-      const phone = formatPhone(p['전화번호'] || (head && p['내선'] ? head + '-' + p['내선'] : ''));
+      const phone = num(p['전화번호'] || p['내선']);
       if (!phone) continue;
       const rank = String(p['직위'] || '').trim(), job = String(p['업무'] || '').trim();
-      const hit = byKey.get(org + '|' + dept + '|' + phone);
-      if (hit) {
-        if (hit[4]) { out.skipped++; continue; }      // 관세청이 공개한 이름이 우선
-        hit[4] = name;
-        if (rank && !hit[3]) hit[3] = rank;
-        if (job && bare(job) !== bare(hit[5])) hit._supJob = job;
-        hit._sup = mark;
+      const here = at(phone);
+      // 이 묶음이 방금 만든 행은 대상에서 뺀다 (같은 번호에 두 사람이 앉는 경우가 있다).
+      const mine = here.filter(r => r._supNew);
+      const named = here.filter(r => r[4] && !r._supNew);
+      const blank = here.filter(r => !r[4] && !r._supNew);
+
+      if (named.some(r => r[4] === name) || mine.some(r => r[4] === name)) { out.skipped++; continue; }
+
+      if (named.length && wins) {            // 자료에 다른 이름이 있는데 사진이 더 최신인 경우
+        const r = named[0];
+        r[3] = rank || r[3]; r[4] = name;
+        if (job) r[5] = job;                 // 사람이 바뀌었으면 적힌 업무도 바뀐 것으로 본다
+        r._sup = mark; delete r._supJob;
+        out.replaced++;
+      } else if (named.length) {             // 관세청이 공개한 이름이 우선
+        out.skipped++;
+      } else if (blank.length) {
+        const r = blank[0];
+        r[4] = name;
+        if (rank && !r[3]) r[3] = rank;
+        if (job && bare(job) !== bare(r[5])) r._supJob = job;
+        r._sup = mark;
         out.filled++;
       } else {
-        const row = [sysOf.get(org) || '', org, dept, rank, name, job, phone];
-        row._sup = mark;
-        rows.push(row);
-        byKey.set(org + '|' + dept + '|' + phone, row);
+        const r = [sysOf.get(org) || '', org, dept, rank, name, job, phone];
+        r._sup = mark; r._supNew = true;
+        rows.push(r);
+        here.push(r);
+        byKey.set(org + '|' + dept + '|' + phone, here);
         out.added++;
       }
     }
@@ -307,7 +345,7 @@ function render() {
   const list = state.list.slice(0, state.shown);
   $('rows').innerHTML = list.map(r => {
     const tel = telOf(r[6]);
-    const sb = r._sup ? supBadge(r._sup) : null;
+    const sb = r._sup && r[4] ? supBadge(r._sup) : null;
     return `<tr>
       <td class="agency">${highlight(r[1], hl)}</td>
       <td class="dept">${r[4] ? '' : '<span class="tag d">부서</span>'}${highlight(r[2], hl)}</td>
