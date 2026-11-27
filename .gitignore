@@ -1,3 +1,4 @@
 config.json
 collect.log
 node_modules/
+.claude/
